@@ -1,0 +1,63 @@
+# Nodes Interfaces API
+
+The Nodes Interfaces API is a RESTful API that provides information about node operators and node statistics for Ethereum Classic (ETC) blockchain. It retrieves data from Google Sheets and polls multiple servers to gather the latest information.
+
+## Prerequisites
+
+Before running the API, make sure you have the following prerequisites installed:
+
+- Node.js
+- Redis
+
+## Installation
+
+1. Clone the repository:
+
+  ```bash
+  git clone https://github.com/your-username/nodes-interfaces-api.git
+  ```
+
+2. Install the dependencies:
+
+  ```bash
+  cd nodes-interfaces-api
+  npm install
+  ```
+
+3. Set up the environment variables:
+
+  - Create a `.env` file in the root directory of the project.
+  - Add the following environment variables to the `.env` file:
+
+    ```
+    G_API_KEY=YOUR_GOOGLE_API_KEY
+    G_SPREADSHEET_ID=YOUR_GOOGLE_SPREADSHEET_ID
+    G_SHEET_NAME=YOUR_GOOGLE_SHEET_NAME
+    REDIS_HOST=YOUR_REDIS_HOST
+    REDIS_PORT=YOUR_REDIS_PORT
+    PORT=3000
+    ```
+
+4. Start the API:
+
+  ```bash
+  npm start
+  ```
+
+## Endpoints
+
+### GET /operators
+
+Retrieves a list of node operators and their services.
+
+### GET /stats
+
+Retrieves statistics about defined nodes, including node version, latest block, and syncing status.
+
+## Contributing
+
+Contributions are welcome! If you find any issues or have suggestions for improvements, please open an issue or submit a pull request.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
