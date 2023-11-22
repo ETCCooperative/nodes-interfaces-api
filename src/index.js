@@ -4,6 +4,7 @@ const cors = require('cors');
 const express = require('express');
 const config = require('./config');
 
+const peersRouter = require('./routes/peers');
 const statsRouter = require('./routes/stats');
 const operatorsRouter = require('./routes/operators');
 
@@ -14,6 +15,7 @@ const port = process.env.PORT || 3000;
 app.use(cors({ origin: config.corsOrigin }));
 
 // Install routers
+app.use(peersRouter);
 app.use(statsRouter);
 app.use(operatorsRouter);
 
