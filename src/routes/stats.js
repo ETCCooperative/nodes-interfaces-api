@@ -41,7 +41,7 @@ const formatResponseData = (data) => {
 
 const pollServers = async () => {
   try {
-    const statsPromises = config.servers.map((url) =>
+    const statsPromises = config.liveStatsServers.map((url) =>
       axios.post(url, requestData)
     );
     const responses = await Promise.all(statsPromises);
