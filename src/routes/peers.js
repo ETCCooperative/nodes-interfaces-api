@@ -1,5 +1,6 @@
 const axios = require('axios');
 const express = require('express');
+const APIError = require('../utils/apiError');
 const redisClient = require('../utils/redisClient');
 const { IPinfoWrapper } = require('node-ipinfo');
 const config = require('../config');
@@ -13,6 +14,15 @@ const IPINFO_API_TOKEN = process.env.IPINFO_API_TOKEN;
 
 if (!IPINFO_API_TOKEN) {
   throw new Error('Missing IPINFO_API_TOKEN');
+}
+
+if (
+  config.stalePeerRefreshThresholdInSeconds >=
+  config.stalePeerDeleteThresholdInSeconds
+) {
+  throw new Error(
+    'Check config, `stalePeerRefreshThresholdInSeconds` must be smaller than `stalePeerDeleteThresholdInSeconds`'
+  );
 }
 
 const ipinfoWrapper = new IPinfoWrapper(IPINFO_API_TOKEN);
@@ -79,6 +89,21 @@ const ipinfoWrapper = new IPinfoWrapper(IPINFO_API_TOKEN);
 //   }
 // ]
 
+// This will be used to generate unique ids for peers
+let jsonRpcId = 1;
+
+// Generate unique id for peer
+const generatePeerId = () => {
+  if (jsonRpcId >= Number.MAX_SAFE_INTEGER) {
+    jsonRpcId = 1;
+  }
+  return jsonRpcId++;
+};
+
+const getEnodeFromNodeUrl = (url) => {
+  return url.substring(8).split('@')[0];
+};
+
 const augmentWithIPInfo = async (ip) => {
   const redisKey = `ipInfo.${ip}`;
   let ipInfo = await redisClient.get(redisKey);
@@ -100,7 +125,7 @@ const augmentWithIPInfo = async (ip) => {
 
 const setContactToNowFor = (key, peer = {}) => {
   if (!key || !peer || !peer.contact || !peer.contact[key]) {
-    return;
+    return peer;
   }
 
   const now = new Date();
@@ -113,6 +138,7 @@ const setContactToNowFor = (key, peer = {}) => {
 
   return peer;
 };
+
 const getInitialContactInfoForNow = () => {
   const now = new Date();
   const contactNow = {
@@ -128,58 +154,102 @@ const getInitialContactInfoForNow = () => {
 };
 
 // Checks if peer is stale and should be refreshed at the node
-function shouldRefreshPeer(peer) {
+const shouldRefreshPeer = (peer) => {
   const { refresh: { unix: lastRefreshUnix = 0 } = {} } = peer.contact;
   const now = Math.floor(new Date() / 1000);
   const diff = now - lastRefreshUnix;
 
-  return diff > config.stalePeerRefreshThreshold;
-}
+  return diff > config.stalePeerRefreshThresholdInSeconds;
+};
 
 // Checks if peer is stale and should be deleted from the cache
-function shouldDeletePeer(peer) {
+const shouldDeletePeer = (peer) => {
   const { last: { unix: lastUnix = 0 } = {} } = peer.contact;
   const now = Math.floor(new Date() / 1000);
   const diff = now - lastUnix;
 
-  return diff > config.stalePeerDeleteThreshold;
-}
+  return diff > config.stalePeerDeleteThresholdInSeconds;
+};
 
-const requestNodeToRefreshPeer = async (enode, server) => {
-  const resRemovePeer = await axios.post(server, {
-    method: 'admin_removePeer',
-    jsonrpc: '2.0',
-    params: [enode],
-    id: Date.now(),
-  });
+const chunkArray = (array, chunkSize) => {
+  const chunks = [];
+  for (let i = 0; i < array.length; i += chunkSize) {
+    chunks.push(array.slice(i, i + chunkSize));
+  }
+  return chunks;
+};
 
-  if (resRemovePeer.status !== 200 || resRemovePeer.data.error) {
-    console.error(
-      `Error removing peer ${enode} on server ${server}:`,
-      resRemovePeer.data
+const validateRemovePeerResponse = (response) => {
+  let {
+    config: { url = '', data: requestData = {} } = {},
+    status,
+    data: { result, error } = {},
+  } = response;
+
+  if (status !== 200 || !result || error) {
+    requestData = JSON.parse(requestData);
+    let { method, params: [enode = ''] = [] } = requestData;
+
+    enode = getEnodeFromNodeUrl(enode);
+
+    throw new Error(`Failed to "${method}" for enode "${enode}"`);
+  }
+};
+
+const requestNodeToRefreshPeer = async (
+  enode,
+  [serverUrl, serverOpts = {}]
+) => {
+  try {
+    const resRemovePeer = await axios.post(
+      serverUrl,
+      {
+        method: 'admin_removePeer',
+        jsonrpc: '2.0',
+        params: [enode],
+        id: generatePeerId(),
+      },
+      { ...serverOpts, timeout: config.peerRefreshRequestTimeoutInMillies }
     );
-    return;
+
+    validateRemovePeerResponse(resRemovePeer);
+  } catch (err) {
+    console.debug(
+      `Error for "admin_removePeer", enode "${enode}" at "${serverUrl}":`,
+      err.message
+    );
+
+    throw new Error(`Failed to "admin_removePeer" for enode "${enode}"`);
   }
 
-  const resAddPeer = await axios.post(server, {
-    method: 'admin_addPeer',
-    jsonrpc: '2.0',
-    params: [enode],
-    id: Date.now(),
-  });
+  // Sleep for 1 second
+  await new Promise((resolve) => setTimeout(resolve, 1000));
 
-  if (resAddPeer.status !== 200 || resAddPeer.data.error) {
-    console.error(
-      `Error removing peer ${enode} on server ${server}:`,
-      resAddPeer.data
+  try {
+    const resAddPeer = await axios.post(
+      serverUrl,
+      {
+        method: 'admin_addPeer',
+        jsonrpc: '2.0',
+        params: [enode],
+        id: generatePeerId(),
+      },
+      { ...serverOpts, timeout: config.peerRefreshRequestTimeoutInMillies }
     );
-    return;
+
+    validateRemovePeerResponse(resAddPeer);
+  } catch (err) {
+    console.debug(
+      `Error for "admin_addPeer", enode "${enode}" at "${serverUrl}":`,
+      err.message
+    );
+    throw new Error(`Failed to "admin_addPeer" for enode "${enode}"`);
   }
 };
 
 const updatePeers = async () => {
   let peers = {
-    // {
+    //[id]: {
     //   id : '123',
     //   ...peerInfo,
     //   ip_info: {},
@@ -198,7 +268,7 @@ const updatePeers = async () => {
     peerDebugInfo = JSON.parse(peerDebugInfo);
   } else {
     peerDebugInfo = {
-      // [key]: {
+      // [enode]: {
       //   keep where we found this peer,
       //   we don't have to know all of them, just the last one is fine
       //   bootnode: 'https://...',
@@ -210,24 +280,62 @@ const updatePeers = async () => {
     method: 'admin_peers',
     jsonrpc: '2.0',
     params: [],
-    id: Date.now(),
+    id: generatePeerId(),
   };
 
   const initialContactInfo = getInitialContactInfoForNow();
 
   // 1. Collect all the peers from nodes
   try {
-    const statsPromises = config.peerServers.map((url) =>
-      axios.post(url, requestData)
+    const statsPromises = config.peerServers.map(([url, opts = {}]) =>
+      axios.post(url, requestData, { ...opts, timeout: 60000 })
     );
-    const responses = await Promise.all(statsPromises);
+    const responses = await Promise.allSettled(statsPromises);
 
     responses.forEach(async (response, idx) => {
-      const { data: { result = [] } = {} } = response;
+      if (response.status !== 'fulfilled' || !response.value) {
+        const {
+          config: { url = '' } = {},
+          message = '',
+        } = response.reason;
+        console.error(`Error fetching peers from "${url}": ${message}`);
+        return;
+      }
+
+      const { data = {} } = response.value;
+      let { result = [] } = data;
+
+      // special handling for peers.etccore.in
+      // TODO: remove this once we add proxy for rottor.fun
+      if (config.peerServers[idx][0].includes('peers.etccore.in')) {
+        result = data;
+      }
+
+      if (typeof result !== 'object' || !Array.isArray(result)) {
+        console.log(typeof result);
+        console.log(result);
+      }
+
+      console.log(
+        'Fetched',
+        result.length,
+        'peers from',
+        config.peerServers[idx][0]
+      );
 
       // 2. Merge peers
       peers = result.reduce((acc, peerInfo) => {
-        const peerId = peerInfo.id;
+        const {
+          enode: nodeUrl = '',
+          protocols: { eth: protoEth, snap: protoSnap } = {},
+        } = peerInfo;
+
+        // skip peers that are on handshake
+        if (protoEth === 'handshake' || protoSnap === 'handshake') {
+          return acc;
+        }
+
+        const peerId = getEnodeFromNodeUrl(nodeUrl);
         let peer = {
           contact: initialContactInfo, // this will be overwritten if set in cache
           ...peers[peerId],
@@ -247,9 +355,16 @@ const updatePeers = async () => {
       }, peers);
     });
   } catch (error) {
-    console.error('Error polling servers:', error);
-    throw new Response('No data found', { status: 404 });
+    const {
+      config: { url = '' } = {},
+      response: { status = 500 },
+      message = '',
+    } = error;
+    console.error(`Error fetching peers from nodes: ${message} for ${url}`);
+    throw new APIError('No data found', status);
   }
+
+  const peersToBeRefreshed = [];
 
   // 3. Augment with IP and contact info
   for await (const peerId of Object.keys(peers)) {
@@ -277,23 +392,80 @@ const updatePeers = async () => {
     }
 
     // Ask node to refresh peer if it's stale
-    if (shouldRefreshPeer(peers[peerId]) && peerDebugInfo[peerId].bootnode) {
-      requestNodeToRefreshPeer(
-        peers[peerId].enode,
-        peerDebugInfo[peerId].bootnode
-      );
-      peer = setContactToNowFor('refresh', peer);
+    // NOTE: check peerDebugInfo, as if we don't know the bootnode, we can't refresh it
+    if (
+      peersToBeRefreshed.length < config.maxPeersToBeRefreshed &&
+      shouldRefreshPeer(peers[peerId]) &&
+      peerDebugInfo[peerId] &&
+      peerDebugInfo[peerId].bootnode &&
+      !peerDebugInfo[peerId].bootnode[0].includes('peers.etccore.in') // TODO: remove this
+    ) {
+      // push to peersToBeRefreshed so as we run them on parallel
+      peersToBeRefreshed.push(peerId);
     }
 
     // Delete peer if it's stale for longer from cache
-    if (shouldDeletePeer(peers[peerId])) {
+    if (shouldDeletePeer(peers[peerId]) &&
+      !peersToBeRefreshed.includes(peerId)
+    ) {
       delete peers[peerId];
       delete peerDebugInfo[peerId];
+
+      console.debug(`Deleted stale peer ${peerId}`);
     }
   }
 
-  redisClient.set(peersNodeKey, JSON.stringify(peers));
-  redisClient.set(peersDebugNodeKey, JSON.stringify(peerDebugInfo));
+  // 5. Update cache, before refreshing peers
+  await redisClient.set(peersNodeKey, JSON.stringify(peers));
+  await redisClient.set(peersDebugNodeKey, JSON.stringify(peerDebugInfo));
+
+  // 6. Refresh peers
+  if (peersToBeRefreshed.length > 0) {
+    console.info(
+      `Starting parallel calls for refreshing ${peersToBeRefreshed.length} peers in batches of ${config.peerRefreshBatchSize}`
+    );
+
+    const peerBatches = chunkArray(peersToBeRefreshed, config.peerRefreshBatchSize);
+
+    let fullfilled = 0;
+    let rejected = 0;
+
+    for await (const [idx, batch] of peerBatches.entries()) {
+      console.info(`Refreshing batch ${idx}`);
+
+      const refreshPromises = batch.map((peerId) => {
+        return requestNodeToRefreshPeer(
+          peers[peerId].enode,
+          peerDebugInfo[peerId].bootnode
+        ).then(() => {
+          peers[peerId] = setContactToNowFor('refresh', peers[peerId]);
+        });
+      });
+
+      try {
+        const responses = await Promise.allSettled(refreshPromises);
+
+        responses.forEach((response) => {
+          if (response.status === 'fulfilled') {
+            fullfilled++;
+          } else {
+            rejected++;
+          }
+        });
+      } catch (err) {
+        console.error(`Error refreshing peers in batch ${idx}:`, err);
+      }
+    }
+
+    console.log(
+      `Refreshed ${fullfilled} peers, failed to refresh ${rejected} peers`
+    );
+
+    // 7. Update cache, after refreshing peers
+    await redisClient.set(peersNodeKey, JSON.stringify(peers));
+    await redisClient.set(peersDebugNodeKey, JSON.stringify(peerDebugInfo));
+  }
+
 
   console.log(`Updated ${Object.keys(peers).length} peers`);
 
@@ -301,23 +473,38 @@ const updatePeers = async () => {
 };
 
 router.get('/peers', async (req, res) => {
-  let cachedPeers = await redisClient.get(peersNodeKey);
-  if (cachedPeers) {
-    peers = JSON.parse(cachedPeers);
-  } else {
-    try {
+  try {
+    let peers;
+    let cachedPeers = await redisClient.get(peersNodeKey);
+    if (cachedPeers) {
+      peers = JSON.parse(cachedPeers);
+    } else {
       peers = await updatePeers();
-    } catch (err) {
-      console.error(`Error retrieving peers:`, err);
-      return res.status(500);
     }
-  }
 
-  res.json(Object.values(peers));
+    res.json(Object.values(peers));
+  } catch (err) {
+    console.error(`Error retrieving peers:`, err);
+    return res.status(500).json({});
+  }
 });
 
-updatePeers();
-// update Peers every hour
-setInterval(updatePeers, 60 * 60 * 1000);
+// Auto update peers
+(async () => {
+  try {
+    await updatePeers();
+    setInterval(
+      async () => await updatePeers(),
+      config.peersAutoUpdateIntervalInMillies
+    );
+  } catch (err) {
+    if (err instanceof APIError) {
+      const { message = '', statusCode } = err;
+      console.error(`Error updating peers (${statusCode}): ${message}`);
+      return;
+    }
+    console.error(`Error updating peers:`, err);
+  }
+})();
 
 module.exports = router;
