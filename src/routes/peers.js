@@ -113,7 +113,7 @@ const augmentWithIPInfo = async (ip) => {
     try {
       ipInfo = await ipinfoWrapper.lookupIp(ip);
       await redisClient.set(redisKey, JSON.stringify(ipInfo), {
-        EX: 2 * 60 * 60 * 24, // 2 days
+        EX: config.ipInfoApiCacheExpiryInSeconds
       });
     } catch (err) {
       console.error(`Error retrieving IP info:`, err);
@@ -249,8 +249,7 @@ const requestNodeToRefreshPeer = async (
 
 const updatePeers = async () => {
   let peers = {
-    //[id]: {
-    //   id : '123',
+    //[enode]: {
     //   ...peerInfo,
     //   ip_info: {},
     //   contact: {},
