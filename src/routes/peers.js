@@ -171,6 +171,15 @@ const getInitialContactInfoForNow = () => {
   };
 };
 
+// Checks if peer is stale and has to be filtered out from response
+const shouldFilterOutPeer = (peer) => {
+  const { last: { unix: lastUnix = 0 } = {} } = peer.contact;
+  const now = Math.floor(new Date() / 1000);
+  const diff = now - lastUnix;
+
+  return diff < config.stalePeerFilterOutThresholdInSeconds;
+};
+
 // Checks if peer is stale and should be deleted from the cache
 const shouldDeletePeer = (peer) => {
   const { last: { unix: lastUnix = 0 } = {} } = peer.contact;
@@ -339,6 +348,9 @@ router.get('/peers', async (req, res) => {
     if (peers.length === 0) {
       peers = await updatePeers();
     }
+
+    // Filter out stale peers
+    peers = Object.values(peers).filter((peer) => shouldFilterOutPeer(peer));
 
     res.json(Object.values(peers));
   } catch (err) {
