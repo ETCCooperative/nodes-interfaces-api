@@ -100,7 +100,7 @@ const generatePeerId = () => {
   return jsonRpcId++;
 };
 
-const getEnodeFromNodeUrl = (url) => {
+const getIdFromEnodeUrl = (url) => {
   return url.substring(8).split('@')[0];
 };
 
@@ -149,17 +149,7 @@ const getInitialContactInfoForNow = () => {
   return {
     first: contactNow,
     last: contactNow,
-    refresh: contactNow,
   };
-};
-
-// Checks if peer is stale and should be refreshed at the node
-const shouldRefreshPeer = (peer) => {
-  const { refresh: { unix: lastRefreshUnix = 0 } = {} } = peer.contact;
-  const now = Math.floor(new Date() / 1000);
-  const diff = now - lastRefreshUnix;
-
-  return diff > config.stalePeerRefreshThresholdInSeconds;
 };
 
 // Checks if peer is stale and should be deleted from the cache
@@ -169,82 +159,6 @@ const shouldDeletePeer = (peer) => {
   const diff = now - lastUnix;
 
   return diff > config.stalePeerDeleteThresholdInSeconds;
-};
-
-const chunkArray = (array, chunkSize) => {
-  const chunks = [];
-  for (let i = 0; i < array.length; i += chunkSize) {
-    chunks.push(array.slice(i, i + chunkSize));
-  }
-  return chunks;
-};
-
-const validateRemovePeerResponse = (response) => {
-  let {
-    config: { url = '', data: requestData = {} } = {},
-    status,
-    data: { result, error } = {},
-  } = response;
-
-  if (status !== 200 || !result || error) {
-    requestData = JSON.parse(requestData);
-    let { method, params: [enode = ''] = [] } = requestData;
-
-    enode = getEnodeFromNodeUrl(enode);
-
-    throw new Error(`Failed to "${method}" for enode "${enode}"`);
-  }
-};
-
-const requestNodeToRefreshPeer = async (
-  enode,
-  [serverUrl, serverOpts = {}]
-) => {
-  try {
-    const resRemovePeer = await axios.post(
-      serverUrl,
-      {
-        method: 'admin_removePeer',
-        jsonrpc: '2.0',
-        params: [enode],
-        id: generatePeerId(),
-      },
-      { ...serverOpts, timeout: config.peerRefreshRequestTimeoutInMillies }
-    );
-
-    validateRemovePeerResponse(resRemovePeer);
-  } catch (err) {
-    console.debug(
-      `Error for "admin_removePeer", enode "${enode}" at "${serverUrl}":`,
-      err.message
-    );
-
-    throw new Error(`Failed to "admin_removePeer" for enode "${enode}"`);
-  }
-
-  // Sleep for 1 second
-  await new Promise((resolve) => setTimeout(resolve, 1000));
-
-  try {
-    const resAddPeer = await axios.post(
-      serverUrl,
-      {
-        method: 'admin_addPeer',
-        jsonrpc: '2.0',
-        params: [enode],
-        id: generatePeerId(),
-      },
-      { ...serverOpts, timeout: config.peerRefreshRequestTimeoutInMillies }
-    );
-
-    validateRemovePeerResponse(resAddPeer);
-  } catch (err) {
-    console.debug(
-      `Error for "admin_addPeer", enode "${enode}" at "${serverUrl}":`,
-      err.message
-    );
-    throw new Error(`Failed to "admin_addPeer" for enode "${enode}"`);
-  }
 };
 
 const updatePeers = async () => {
@@ -262,6 +176,7 @@ const updatePeers = async () => {
     peers = JSON.parse(cachedPeers);
   }
 
+  // NOTE: This is for debugging purposes only, it was used for refreshing nodes, but the logic was removed
   let peerDebugInfo = await redisClient.get(peersDebugNodeKey);
   if (peerDebugInfo) {
     peerDebugInfo = JSON.parse(peerDebugInfo);
@@ -315,7 +230,7 @@ const updatePeers = async () => {
         console.log(result);
       }
 
-      console.log(
+      console.debug(
         'Fetched',
         result.length,
         'peers from',
@@ -334,7 +249,7 @@ const updatePeers = async () => {
           return acc;
         }
 
-        const peerId = getEnodeFromNodeUrl(nodeUrl);
+        const peerId = getIdFromEnodeUrl(nodeUrl);
         let peer = {
           contact: initialContactInfo, // this will be overwritten if set in cache
           ...peers[peerId],
@@ -363,8 +278,6 @@ const updatePeers = async () => {
     throw new APIError('No data found', status);
   }
 
-  const peersToBeRefreshed = [];
-
   // 3. Augment with IP and contact info
   for await (const peerId of Object.keys(peers)) {
     // 4. Augment with IP info
@@ -390,23 +303,8 @@ const updatePeers = async () => {
       };
     }
 
-    // Ask node to refresh peer if it's stale
-    // NOTE: check peerDebugInfo, as if we don't know the bootnode, we can't refresh it
-    if (
-      peersToBeRefreshed.length < config.maxPeersToBeRefreshed &&
-      shouldRefreshPeer(peers[peerId]) &&
-      peerDebugInfo[peerId] &&
-      peerDebugInfo[peerId].bootnode &&
-      !peerDebugInfo[peerId].bootnode[0].includes('peers.etccore.in') // TODO: remove this
-    ) {
-      // push to peersToBeRefreshed so as we run them on parallel
-      peersToBeRefreshed.push(peerId);
-    }
-
     // Delete peer if it's stale for longer from cache
-    if (shouldDeletePeer(peers[peerId]) &&
-      !peersToBeRefreshed.includes(peerId)
-    ) {
+    if (shouldDeletePeer(peers[peerId])) {
       delete peers[peerId];
       delete peerDebugInfo[peerId];
 
@@ -414,59 +312,12 @@ const updatePeers = async () => {
     }
   }
 
-  // 5. Update cache, before refreshing peers
+  // 5. Update cache
   await redisClient.set(peersNodeKey, JSON.stringify(peers));
   await redisClient.set(peersDebugNodeKey, JSON.stringify(peerDebugInfo));
 
-  // 6. Refresh peers
-  if (peersToBeRefreshed.length > 0) {
-    console.info(
-      `Starting parallel calls for refreshing ${peersToBeRefreshed.length} peers in batches of ${config.peerRefreshBatchSize}`
-    );
-
-    const peerBatches = chunkArray(peersToBeRefreshed, config.peerRefreshBatchSize);
-
-    let fullfilled = 0;
-    let rejected = 0;
-
-    for await (const [idx, batch] of peerBatches.entries()) {
-      console.info(`Refreshing batch ${idx}`);
-
-      const refreshPromises = batch.map((peerId) => {
-        return requestNodeToRefreshPeer(
-          peers[peerId].enode,
-          peerDebugInfo[peerId].bootnode
-        ).then(() => {
-          peers[peerId] = setContactToNowFor('refresh', peers[peerId]);
-        });
-      });
-
-      try {
-        const responses = await Promise.allSettled(refreshPromises);
-
-        responses.forEach((response) => {
-          if (response.status === 'fulfilled') {
-            fullfilled++;
-          } else {
-            rejected++;
-          }
-        });
-      } catch (err) {
-        console.error(`Error refreshing peers in batch ${idx}:`, err);
-      }
-    }
-
-    console.log(
-      `Refreshed ${fullfilled} peers, failed to refresh ${rejected} peers`
-    );
-
-    // 7. Update cache, after refreshing peers
-    await redisClient.set(peersNodeKey, JSON.stringify(peers));
-    await redisClient.set(peersDebugNodeKey, JSON.stringify(peerDebugInfo));
-  }
-
-
-  console.log(`Updated ${Object.keys(peers).length} peers`);
+  const numberOfEnrs = [...new Set(Object.values(peers).map((peer) => peer.enr))].length;
+  console.log(`Found ${Object.keys(peers).length} unique peers, ${numberOfEnrs} are publicly accessible (no firewall)`);
 
   return peers;
 };
