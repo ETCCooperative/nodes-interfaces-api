@@ -320,7 +320,9 @@ router.get('/peers', async (req, res) => {
     let cachedPeers = await redisClient.get(peersNodeKey);
     if (cachedPeers) {
       peers = JSON.parse(cachedPeers);
-    } else {
+    }
+
+    if (peers.length === 0) {
       peers = await updatePeers();
     }
 
