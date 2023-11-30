@@ -27,6 +27,7 @@ if (
 }
 
 const ipinfoWrapper = new IPinfoWrapper(IPINFO_API_TOKEN);
+const GeoIPReader = require('@maxmind/geoip2-node').Reader;
 
 // Example node response:
 //
@@ -119,26 +120,55 @@ const augmentWithIPInfo = async (ip) => {
     ipInfo = JSON.parse(ipInfo);
   } else {
     try {
-      ipInfo = await ipinfoWrapper.lookupIp(ip);
+      // https://github.com/maxmind/GeoIP2-node/blob/main/README.md#city-example
+      ipInfo = await GeoIPReader.open(config.maxMindGeoIPDBPath).then(reader => {
+        const response = reader.city(`${ip}`);
+
+        return {
+          ip: response.traits.ipAddress,
+          // hostname: "unknown",
+          city: response.city.names.en,
+          region: response.subdivisions[0].names.en,
+          country: response.country.names.en,
+          countryCode: response.country.isoCode,
+          loc: `${response.location.latitude},${response.location.longitude}`,
+          // > The name of the organization associated with the IP address. This value is only set when using the City Plus or Insights web service or the Enterprise database.
+          // org: response.traits.organization || "unknown", // without a premium service, this will be unknown.
+          postal: response.postal.code,
+          timezone: response.location.timezone,
+        };
+      });
+
       await redisClient.set(redisKey, JSON.stringify(ipInfo), {
         EX: config.ipInfoApiCacheExpiryInSeconds
       });
+
     } catch (err) {
-      console.error(`Error retrieving IP info:`, err);
-      return {};
+      console.error(`Error retrieving IP info from MaxMind GeoIP City DB:`, err);
+
+      // Fallback to IPInfo web service
+      try {
+        ipInfo = await ipinfoWrapper.lookupIp(ip);
+        await redisClient.set(redisKey, JSON.stringify(ipInfo), {
+          EX: config.ipInfoApiCacheExpiryInSeconds
+        });
+      } catch (err) {
+        console.error(`Error retrieving IP info:`, err);
+        return {};
+      }
     }
   }
   return {
-      ip: ipInfo.ip,
-      hostname: ipInfo.hostname,
-      city: ipInfo.city,
-      region: ipInfo.region,
-      country: ipInfo.country,
-      countryCode: ipInfo.countryCode,
-      loc: ipInfo.loc,
-      org: ipInfo.org,
-      postal: ipInfo.postal,
-      timezone: ipInfo.timezone,
+    ip: ipInfo.ip,
+    hostname: ipInfo.hostname,
+    city: ipInfo.city,
+    region: ipInfo.region,
+    country: ipInfo.country,
+    countryCode: ipInfo.countryCode,
+    loc: ipInfo.loc,
+    org: ipInfo.org,
+    postal: ipInfo.postal,
+    timezone: ipInfo.timezone,
   };
 };
 

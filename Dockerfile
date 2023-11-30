@@ -9,6 +9,7 @@ RUN npm install
 
 # Bundle app source
 COPY src/ .
+COPY GeoLite2-City.mmdb .
 
 EXPOSE 3000
 CMD [ "node", "index.js" ]

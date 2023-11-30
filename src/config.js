@@ -47,4 +47,6 @@ module.exports = {
 
   // Time to cache the info for an IP address
   ipInfoApiCacheExpiryInSeconds: 10 * 60 * 60 * 24, // 10 days
+
+  maxMindGeoIPDBPath: 'GeoLite2-City.mmdb',
 };
