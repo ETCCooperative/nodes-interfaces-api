@@ -10,6 +10,7 @@ const router = express.Router();
 const peersNodeKey = 'peers';
 const peersDebugNodeKey = 'peersDebug';
 
+const DEBUG = process.env.DEBUG || false;
 const IPINFO_API_TOKEN = process.env.IPINFO_API_TOKEN;
 
 if (!IPINFO_API_TOKEN) {
@@ -105,6 +106,10 @@ const getIdFromEnodeUrl = (url) => {
 };
 
 const augmentWithIPInfo = async (ip) => {
+  if (DEBUG) {
+    return {}
+  }
+
   const redisKey = `ipInfo.${ip}`;
   let ipInfo = await redisClient.get(redisKey);
   if (ipInfo) {
@@ -287,20 +292,7 @@ const updatePeers = async () => {
     ) {
       const { network: { remoteAddress = '' } = {} } = peers[peerId];
       const remoteIp = remoteAddress.split(':')[0];
-      // TODO: enable on live
-      // peers[peerId].ip_info = await augmentWithIPInfo(remoteIp);
-      peers[peerId].ip_info = {
-        ip: '174.92.149.225',
-        hostname: 'bras-base-sconpq1802w-grc-04-174-92-149-225.dsl.bell.ca',
-        city: 'Saint-Constant',
-        region: 'Quebec',
-        country: 'CA',
-        country_name: 'Canada',
-        loc: '45.3668,-73.5659',
-        org: 'AS577 Bell Canada',
-        postal: 'J5A',
-        timezone: 'America/Toronto',
-      };
+      peers[peerId].ip_info = await augmentWithIPInfo(remoteIp);
     }
 
     // Delete peer if it's stale for longer from cache
