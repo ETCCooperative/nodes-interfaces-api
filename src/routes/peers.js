@@ -101,8 +101,11 @@ const generatePeerId = () => {
   return jsonRpcId++;
 };
 
+const regexEnodeID = /[0-9a-fA-F]{128}/
 const getIdFromEnodeUrl = (url) => {
-  return url.substring(8).split('@')[0];
+  // enode://9e3cc690a3d3ccfd5c9229fea53107f46631a4456e55c5bd849e72e50e10b4fbffa81063e8174b57285b199ac71abb9063ef391199abfc2c86d64c6dfa001402@174.92.149.225:51650
+  // => 9e3cc690a3d3ccfd5c9229fea53107f46631a4456e55c5bd849e72e50e10b4fbffa81063e8174b57285b199ac71abb9063ef391199abfc2c86d64c6dfa001402
+  return url.match(regexEnodeID)[0];
 };
 
 const augmentWithIPInfo = async (ip) => {
