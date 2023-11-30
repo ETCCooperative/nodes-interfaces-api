@@ -125,7 +125,18 @@ const augmentWithIPInfo = async (ip) => {
       return {};
     }
   }
-  return ipInfo;
+  return {
+      ip: ipInfo.ip,
+      hostname: ipInfo.hostname,
+      city: ipInfo.city,
+      region: ipInfo.region,
+      country: ipInfo.country,
+      countryCode: ipInfo.countryCode,
+      loc: ipInfo.loc,
+      org: ipInfo.org,
+      postal: ipInfo.postal,
+      timezone: ipInfo.timezone,
+  };
 };
 
 const setContactToNowFor = (key, peer = {}) => {
