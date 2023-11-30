@@ -36,7 +36,8 @@ module.exports = {
         },
       },
     ],
-    ['https://peers.etccore.in/v5/nodes.json', {}],
+    // only use this node as a backup
+    // ['https://peers.etccore.in/v5/nodes.json', {}],
   ],
 
   peersAutoUpdateIntervalInMillies: 5 * 60 * 1000, // 5 minutes
