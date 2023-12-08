@@ -33,12 +33,18 @@ const convertToCanonicalObjects = (data = []) => {
     let serviceIndex = headings.indexOf('service');
     let urlIndex = headings.indexOf('url');
     let statusIndex = headings.indexOf('status');
+    let twitterIndex = headings.indexOf('twitter handle');
+    let telegramIndex = headings.indexOf('telegram');
+    let discordIndex = headings.indexOf('discord');
 
     return rows.reduce((acc, row) => {
       const category = row[categoryIndex];
       const service = row[serviceIndex];
       const url = row[urlIndex];
       const status = row[statusIndex];
+      const twitter = row[twitterIndex];
+      const telegram = row[telegramIndex];
+      const discord = row[discordIndex];
 
       // skip records with no category or service
       if (!category || !service) {
@@ -52,6 +58,9 @@ const convertToCanonicalObjects = (data = []) => {
         service,
         url,
         status: Number(status),
+        twitter,
+        telegram,
+        discord,
       });
       return acc;
     }, {});
