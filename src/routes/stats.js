@@ -44,11 +44,13 @@ const pollServers = async () => {
     const statsPromises = config.liveStatsServers.map((url) =>
       axios.post(url, requestData)
     );
-    const responses = await Promise.all(statsPromises);
+    const responses = await Promise.allSettled(statsPromises);
 
     const res = [];
-    responses.forEach(async (response, index) => {
-      res.push(formatResponseData(response.data));
+    responses.forEach(async ({status, value}, index) => {
+      if (status === 'fulfilled') {
+        res.push(formatResponseData(value.data));
+      }
     });
 
     return res;
