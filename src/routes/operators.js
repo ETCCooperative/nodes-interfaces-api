@@ -1,5 +1,6 @@
 const express = require('express');
 const redisClient = require('../utils/redisClient');
+const config = require('../config');
 
 const router = express.Router();
 
@@ -14,7 +15,7 @@ if (!gApiKey || !gSpreadsheetId || !gSheetName) {
 const fetchGSheetData = async (env) => {
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${gSpreadsheetId}/values/${gSheetName}?key=${gApiKey}`;
 
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(config.operatorsRequestTimeout) });
   if (res.status === 200) {
     return await res.json();
   }

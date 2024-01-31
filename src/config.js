@@ -42,6 +42,9 @@ module.exports = {
     ['https://besu-de.etc-network.info', {}],
   ],
 
+  statsRequestTimeout: 10 * 1000, // 10 seconds
+  operatorsRequestTimeout: 10 * 1000, // 10 seconds
+
   peersAutoUpdateIntervalInMillies: 5 * 60 * 1000, // 5 minutes
 
   // For how long to keep a peer in the list if it's not responding

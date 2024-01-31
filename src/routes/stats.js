@@ -42,12 +42,12 @@ const formatResponseData = (data) => {
 const pollServers = async () => {
   try {
     const statsPromises = config.liveStatsServers.map((url) =>
-      axios.post(url, requestData)
+      axios.post(url, requestData, {timeout: config.statsRequestTimeout})
     );
     const responses = await Promise.allSettled(statsPromises);
 
     const res = [];
-    responses.forEach(async ({status, value}, index) => {
+    responses.forEach(async ({status, value}) => {
       if (status === 'fulfilled') {
         res.push(formatResponseData(value.data));
       }
