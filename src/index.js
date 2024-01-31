@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const cors = require('cors');
 const express = require('express');
+const compression = require('compression');
 const config = require('./config');
 
 const peersRouter = require('./routes/peers');
@@ -14,6 +15,9 @@ const port = process.env.PORT || 3000;
 
 // Enable CORS for all requests
 app.use(cors({ origin: config.corsOrigin }));
+
+// Enable compression on all responses
+app.use(compression());
 
 // Install routers
 app.use(peersRouter);
