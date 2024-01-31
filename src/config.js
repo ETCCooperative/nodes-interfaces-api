@@ -1,5 +1,10 @@
 module.exports = {
-  corsOrigin: [/\.?etcnodes\.org$/, /127\.0\.0\.1/, /localhost/],
+  corsOrigin: [
+    /\.?etcnodes\.org$/,
+    /nodes\.etc-network\.info$/,
+    /127\.0\.0\.1/,
+    /localhost/
+  ],
 
   // List of server endpoints to poll for live stats
   liveStatsServers: [
