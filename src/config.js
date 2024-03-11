@@ -16,7 +16,7 @@ module.exports = {
   // List of bootnodes to fetch peers from
   peerServers: [
     [
-      'https://ams.peers.etcnodes.org:8540',
+      'https://ams.peers.etcnodes.org',
       {
         auth: {
           username: process.env.NODE_AUTH_USERNAME,
@@ -25,7 +25,7 @@ module.exports = {
       },
     ],
     [
-      'https://sfo.peers.etcnodes.org:8540',
+      'https://sfo.peers.etcnodes.org',
       {
         auth: {
           username: process.env.NODE_AUTH_USERNAME,
@@ -34,7 +34,7 @@ module.exports = {
       },
     ],
     [
-      'https://nyc.peers.etcnodes.org:8540',
+      'https://nyc.peers.etcnodes.org',
       {
         auth: {
           username: process.env.NODE_AUTH_USERNAME,
