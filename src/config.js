@@ -44,7 +44,7 @@ module.exports = {
     ],
     // only use this node as a backup
     // ['https://peers.etccore.in/v5/nodes.json', {}],
-    ['https://besu-de.etc-network.info', {}],
+    ['https://besu-at.etc-network.info', {}],
   ],
 
   statsRequestTimeout: 10 * 1000, // 10 seconds
@@ -56,7 +56,7 @@ module.exports = {
   stalePeerFilterOutThresholdInSeconds: 60 * 24, // 1 hour
 
   // For how long to keep a peer in the list if it's not responding
-  stalePeerDeleteThresholdInSeconds: 60 * 60 * 24, // 1 day
+  stalePeerDeleteThresholdInSeconds: 10 * 60 * 60 * 24, // 10 days
 
   // Time to cache the info for an IP address
   ipInfoApiCacheExpiryInSeconds: 10 * 60 * 60 * 24, // 10 days
